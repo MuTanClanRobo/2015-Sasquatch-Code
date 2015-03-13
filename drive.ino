@@ -9,10 +9,7 @@
 #define TANK false
 #define DRIVEMODE boolean
 
-#define PRESSURESTATUS int
-#define TOO_HIGH 2
-#define ALRIGHT 1
-#define TOO_LOW 0
+#define ROLL_SPEED 127
 
 /* I/O Setup */
 ROJoystick usb1(1);         // Joystick #1
@@ -22,9 +19,16 @@ ROPWM lr_wheel_pwm(2);
 ROPWM rr_wheel_pwm(3);
 ROPWM conv_pwm(4);
 ROPWM shoot_pwm(5);
+ROPWM roller_pwm(6);
 RODigitalIO dig0Out(0,OUTPUT);
 RODigitalIO dig1Out(1,OUTPUT);
 RODigitalIO dig2Out(2,OUTPUT);
+RODigitalIO dig3Out(3,OUTPUT);
+RODigitalIO dig4Out(4,OUTPUT);
+RODigitalIO dig5Out(5,OUTPUT);
+RODigitalIO dig6Out(6,OUTPUT);
+RODigitalIO dig7Out(7,OUTPUT);
+RODigitalIO dig8Out(8,OUTPUT);
 RODigitalIO PressureSensor(19,INPUT);
 ROSolenoid sol0(0);
 ROSolenoid sol1(1);
@@ -35,6 +39,7 @@ int wheel_speed_reduction = 1;
 int x, y, rotate;    
 DRIVEMODE current_mode = MECANUM;
 int lf,rf,lr,rr;
+boolean keep_rolling = true;
 
 void setup()
 {
@@ -42,32 +47,42 @@ void setup()
   RobotOpen.begin(&enabled,&disabled, &timedtasks);
 }
 
-inline void regulate_pressure(){
-
+void regulate_pressure(){
+  // @TODO AAAAAAAAAAAAAAAAAAHHHHHHHHHHHHHHHHHHHHHHH!!
 }
 
-void jump_front_wheels(DRIVEMODE mode){
-  // @TODO Fill this out with Collin
+void jump_wheels(DRIVEMODE mode){
+  // @TODO Confirm this out with Collin
+  if (mode == TANK){
+    dig3Out.off();
+    dig4Out.off();
+    dig5Out.on();
+    dig6Out.off();
+    dig7Out.off();
+    dig8Out.on(); 
+  }else{
+    dig3Out.off();
+    dig4Out.on();
+    dig5Out.off();
+    dig6Out.off();
+    dig7Out.on();
+    dig8Out.off();
+  }
 }
 
-void jump_rear_wheels(DRIVEMODE mode){
-  // @TODO Fill this out with Collin
-}
-
-inline void switch_mode(DRIVEMODE mode){
-  jump_rear_wheels(mode);
-  jump_front_wheels(mode);
+void set_mode(DRIVEMODE mode){
+  jump_wheels(mode);
   current_mode = mode;
 }
 
-inline void set_mecanum_throttle_values(){
+void set_mecanum_throttle_values(){
   lf = ( x + y + rotate)/wheel_speed_reduction;
   rf = ( x - y + rotate)/wheel_speed_reduction;
   lr = (-x + y + rotate)/wheel_speed_reduction;
   rr = (-x - y + rotate)/wheel_speed_reduction;
 }
 
-inline void set_tank_throttle_values(){
+void set_tank_throttle_values(){
   int rotation_coefficient = 1;
   int rotation_offset = rotate/rotation_coefficient;
   lf = (+y + rotation_offset)/wheel_speed_reduction;
@@ -76,7 +91,7 @@ inline void set_tank_throttle_values(){
   rr = (-y + rotation_offset)/wheel_speed_reduction;
 }
 
-inline void normalize_wheel_throttles(){
+void normalize_wheel_throttles(){
   int maximum = max(max(abs(lf), abs(rf)), max(abs(lr), abs(rr)));
   if (maximum > 127) {
     lf = (lf / maximum) * 127;
@@ -86,7 +101,7 @@ inline void normalize_wheel_throttles(){
   }
 }
 
-inline void pwn_write_throttle_values(){
+void pwn_write_throttle_values(){
   // Set PWMs, shifted back to [0..255]
   lf_wheel_pwm.write(lf + 127);
   rf_wheel_pwm.write(rf + 127);
@@ -94,20 +109,26 @@ inline void pwn_write_throttle_values(){
   rr_wheel_pwm.write(rr + 127);
 }
 
-inline void pwm_write_conv(){
+void pwm_write_conv(){
   int conv = usb1.lTrigger()/2;
-  if (usb1.btnLShoulder())
-    conv_pwm.write(-conv);
-  else
-    conv_pwm.write(conv);    
+  conv_pwm.write(conv);    
 }
 
-inline void pwm_write_shoot(){
+void pwm_write_shoot(){
   int shoot = usb1.lTrigger()/2;
-  if (usb1.btnLShoulder())
-    shoot_pwm.write(-shoot);
-  else
-    shoot_pwm.write(shoot); 
+  shoot_pwm.write(shoot); 
+}
+
+void compress_more_air(){
+    dig0Out.off();
+    dig1Out.off();
+    dig2Out.on();
+}
+
+void dont_compress_more_air(){
+    dig0Out.off();
+    dig1Out.off();
+    dig2Out.off();
 }
 
 void enabled() {
@@ -127,20 +148,36 @@ void enabled() {
   
   pwm_write_conv();
   pwm_write_shoot();
-
-  // WHAT THE FLYING FUCK IS GOING ON???!!!
-  if (usb1.btnY()){
-    dig0Out.off();
-    dig1Out.off();
-    dig2Out.on();
+  
+  if (usb1.btnRShoulder())
+    set_mode(TANK);
+  else if (usb1.btnLShoulder())
+    set_mode(MECANUM);
+  else{
+    sol1.off();
+    sol0.off();
+  }
+  
+  if (usb1.btnX()){
+    keep_rolling = !keep_rolling;
+  }
+  
+  if (keep_rolling)
+    if (usb1.btnY())
+      roller_pwm.write(127 - ROLL_SPEED);
+    else
+      roller_pwm.write(127 + ROLL_SPEED);
+  
+  if (PressureSensor.read()){
+    dont_compress_more_air();
     RODashboard.debug("sensor high");
   }
   else{
-    dig0Out.off();
-    dig1Out.off();
-    dig2Out.off();
+    compress_more_air();
     RODashboard.debug("sensor low");
   }
+  
+  
   RODashboard.publish("sensorinput", PressureSensor.read());
 }
 
